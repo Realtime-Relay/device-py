@@ -119,7 +119,6 @@ class NatsTransport:
             await self._nats_client.drain()
 
         self._connected = False
-        self._emit_status({"type": TransportStatus.DISCONNECTED})
 
         return True
 
