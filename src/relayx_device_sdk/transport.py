@@ -3,6 +3,7 @@ import base64
 import json
 import inspect
 import uuid
+from datetime import datetime, timezone
 
 import msgpack
 import nats
@@ -62,6 +63,11 @@ class NatsTransport:
 
         self._message_loops: list[asyncio.Task] = []
 
+        self._manual_disconnect: bool = False
+        self._reconnecting: bool = False
+        self._disconnect_time: str | None = None
+        self._topic_map: dict = {}  # subject -> {"type": "core"|"jetstream", "callback": fn}
+
     async def connect(self) -> bool:
         if self._connected:
             return False
@@ -71,11 +77,7 @@ class NatsTransport:
         )
         creds = RawCredentials(creds_file)
 
-        servers = (
-            NATS_SERVERS_PRODUCTION
-            if self._config["mode"] == "production"
-            else NATS_SERVERS_TEST
-        )
+        servers = NATS_SERVERS_PRODUCTION
 
         self._nats_client = await nats.connect(
             servers=servers,
@@ -83,6 +85,8 @@ class NatsTransport:
             max_reconnect_attempts=1200,
             reconnect_time_wait=1,
             allow_reconnect=True,
+            ping_interval=5,
+            max_outstanding_pings=2,
             token=self._config["api_key"],
             user_credentials=creds,
             reconnected_cb=self._on_reconnect,
@@ -108,25 +112,35 @@ class NatsTransport:
         if not self._connected:
             return False
 
+        self._manual_disconnect = True
+
         await self._delete_all_consumers()
         self._offline_message_buffer.clear()
+        self._topic_map.clear()
 
         for task in self._message_loops:
             task.cancel()
         self._message_loops.clear()
 
         if self._nats_client:
-            await self._nats_client.drain()
+            try:
+                await asyncio.wait_for(self._nats_client.drain(), timeout=5)
+            except Exception:
+                try:
+                    await self._nats_client.close()
+                except Exception:
+                    pass
 
         self._connected = False
+        self._reconnecting = False
 
         return True
 
     def is_connected(self) -> bool:
         return self._connected
 
-    async def core_subscribe(self, subject: str, callback):
-        if not self._connected:
+    async def core_subscribe(self, subject: str, callback, _is_resubscribe: bool = False):
+        if not self._connected and not _is_resubscribe:
             raise NotConnectedError()
         if not callable(callback):
             raise ValidationError("callback must be a function")
@@ -150,22 +164,32 @@ class NatsTransport:
         task = asyncio.create_task(_message_loop())
         self._message_loops.append(task)
 
+        self._topic_map[subject] = {"type": "core", "callback": callback}
+
         return sub
 
-    async def subscribe(self, subject: str, callback):
-        if not self._connected:
+    async def subscribe(self, subject: str, callback, _is_resubscribe: bool = False):
+        if not self._connected and not _is_resubscribe:
             raise NotConnectedError()
         if not callable(callback):
             raise ValidationError("callback must be a function")
 
         consumer_name = f"device_{uuid.uuid4()}_consumer"
 
+        deliver_policy = js_api.DeliverPolicy.NEW
+        opt_start_time = None
+
+        if _is_resubscribe and self._disconnect_time:
+            deliver_policy = js_api.DeliverPolicy.BY_START_TIME
+            opt_start_time = self._disconnect_time
+
         sub = await self._jetstream.subscribe(
             subject,
             stream=self._command_queue_stream_name,
             config=js_api.ConsumerConfig(
                 name=consumer_name,
-                deliver_policy=js_api.DeliverPolicy.NEW,
+                deliver_policy=deliver_policy,
+                opt_start_time=opt_start_time,
                 ack_policy=js_api.AckPolicy.EXPLICIT,
             ),
         )
@@ -190,6 +214,7 @@ class NatsTransport:
 
         subscription = {"subject": subject, "subscription": sub, "consumer": sub}
         self._consumer_map[subject] = subscription
+        self._topic_map[subject] = {"type": "jetstream", "callback": callback}
 
         return subscription
 
@@ -197,8 +222,8 @@ class NatsTransport:
         if subscription is None:
             return
 
-        subject = subscription.get("subject")
-        sub = subscription.get("subscription")
+        subject = subscription if isinstance(subscription, str) else subscription.get("subject")
+        sub = None if isinstance(subscription, str) else subscription.get("subscription")
 
         if sub:
             try:
@@ -208,6 +233,8 @@ class NatsTransport:
 
         if subject and subject in self._consumer_map:
             del self._consumer_map[subject]
+        if subject and subject in self._topic_map:
+            del self._topic_map[subject]
 
     async def publish(self, subject: str, data) -> bool:
         if not self._connected:
@@ -265,21 +292,59 @@ class NatsTransport:
 
     async def _on_disconnect(self):
         self._connected = False
-        self._emit_status({"type": TransportStatus.DISCONNECTED})
+        self._disconnect_time = datetime.now(timezone.utc).isoformat()
+
+        if self._manual_disconnect:
+            self._emit_status({"type": TransportStatus.DISCONNECTED})
+            return
+
+        # Not manual — NATS client will attempt reconnection automatically
+        self._reconnecting = True
+        self._emit_status({"type": TransportStatus.RECONNECTING})
 
     async def _on_reconnect(self):
         self._connected = True
+        self._reconnecting = False
+
+        # Re-subscribe to JetStream topics using disconnect_time as start time
+        await self._resubscribe_topics()
+
         await self._flush_offline_buffer()
         self._emit_status({"type": TransportStatus.RECONNECTED})
 
     async def _on_error(self, e):
         if "Authorization Violation" in str(e):
             self._connected = False
+            self._reconnecting = False
             self._emit_status({"type": TransportStatus.AUTH_FAILED, "error": e})
 
     async def _on_closed(self):
         self._connected = False
+        self._reconnecting = False
         self._offline_message_buffer.clear()
+
+    async def _resubscribe_topics(self):
+        if not self._topic_map:
+            return
+
+        # Clean up old consumers and message loops
+        await self._delete_all_consumers()
+        for task in self._message_loops:
+            task.cancel()
+        self._message_loops.clear()
+
+        # Take a snapshot — subscribe/core_subscribe will mutate topic_map
+        topics = list(self._topic_map.items())
+        self._topic_map.clear()
+
+        for subject, entry in topics:
+            try:
+                if entry["type"] == "core":
+                    await self.core_subscribe(subject, entry["callback"], _is_resubscribe=True)
+                elif entry["type"] == "jetstream":
+                    await self.subscribe(subject, entry["callback"], _is_resubscribe=True)
+            except Exception:
+                pass
 
     async def _flush_offline_buffer(self):
         messages = self._offline_message_buffer[:]

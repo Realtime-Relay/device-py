@@ -35,17 +35,17 @@ async def main():
             temperature = round(20 + random.random() * 15, 2)
             humidity = round(30 + random.random() * 50, 2)
 
-            temp_ok, hum_ok = await asyncio.gather(
-                device.telemetry.publish("temperature", temperature),
-                device.telemetry.publish("humidity", humidity),
-            )
+            # temp_ok, hum_ok = await asyncio.gather(
+            #     device.telemetry.publish("temperature", temperature),
+            #     device.telemetry.publish("humidity", humidity),
+            # )
 
-            print(
-                f"[telemetry] temp={temperature}°C "
-                f"({'sent' if temp_ok else 'buffered'}) | "
-                f"humidity={humidity}% "
-                f"({'sent' if hum_ok else 'buffered'})"
-            )
+            # print(
+            #     f"[telemetry] temp={temperature}°C "
+            #     f"({'sent' if temp_ok else 'buffered'}) | "
+            #     f"humidity={humidity}% "
+            #     f"({'sent' if hum_ok else 'buffered'})"
+            # )
 
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=5)
