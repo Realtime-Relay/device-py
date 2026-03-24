@@ -43,4 +43,4 @@ class SubjectBuilder:
     @staticmethod
     def event(org_id: str, env: str, device_id: str, event_name: str) -> str:
         _validate_token(event_name, "eventName")
-        return f"{org_id}.{env}.event.{device_id}.{event_name}"
+        return f"{org_id}.{env}.events.{device_id}.{event_name}"
