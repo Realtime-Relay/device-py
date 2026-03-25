@@ -31,7 +31,7 @@ class TelemetryManager:
                 )
 
             if reading is not None:
-                expected_type = schema[metric]
+                expected_type = schema[metric].get('type') if isinstance(schema[metric], dict) else schema[metric]
                 actual_type = _get_reading_type(reading)
 
                 if actual_type != expected_type:
