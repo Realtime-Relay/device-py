@@ -61,8 +61,8 @@ class RpcManager:
         if subscription:
             try:
                 await subscription.unsubscribe()
-            except Exception:
-                pass
+            except Exception as e:
+                self._transport.logger.error('Failed to unsubscribe RPC listener', e)
 
         self._registry.unregister(name)
         return True

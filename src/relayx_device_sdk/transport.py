@@ -15,6 +15,7 @@ from relayx_device_sdk.errors import (
     TimeoutError,
     ValidationError,
 )
+from relayx_device_sdk.utils.logger import Logger
 from relayx_device_sdk.utils.subject_builder import SubjectBuilder
 
 
@@ -44,6 +45,7 @@ class NatsTransport:
     def __init__(self, config: dict):
         self._config = config
         self._env = config["mode"]
+        self.logger = Logger(self._env)
 
         self._nats_client = None
         self._jetstream = None
@@ -125,11 +127,12 @@ class NatsTransport:
         if self._nats_client:
             try:
                 await asyncio.wait_for(self._nats_client.drain(), timeout=5)
-            except Exception:
+            except Exception as e:
+                self.logger.error('Failed to drain connection', e)
                 try:
                     await self._nats_client.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.logger.error('Failed to close connection', e)
 
         self._connected = False
         self._reconnecting = False
@@ -156,8 +159,8 @@ class NatsTransport:
                             await callback(data, msg)
                         else:
                             callback(data, msg)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        self.logger.error('Error processing core message', e)
             except asyncio.CancelledError:
                 pass
 
@@ -204,7 +207,8 @@ class NatsTransport:
                         else:
                             callback(data)
                         await msg.ack()
-                    except Exception:
+                    except Exception as e:
+                        self.logger.error('Error processing message', e)
                         await msg.nak(delay=5)
             except asyncio.CancelledError:
                 pass
@@ -228,8 +232,8 @@ class NatsTransport:
         if sub:
             try:
                 await sub.unsubscribe()
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.error('Failed to unsubscribe', e)
 
         if subject and subject in self._consumer_map:
             del self._consumer_map[subject]
@@ -245,7 +249,8 @@ class NatsTransport:
         try:
             ack = await self._jetstream.publish(subject, encoded)
             return ack is not None
-        except Exception:
+        except Exception as e:
+            self.logger.error('Failed to publish message', e)
             return False
 
     async def request(self, subject: str, data, opts: dict | None = None):
@@ -287,8 +292,8 @@ class NatsTransport:
                     asyncio.create_task(cb(event))
                 else:
                     cb(event)
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.error('Error in status callback', e)
 
     async def _on_disconnect(self):
         self._connected = False
@@ -343,8 +348,8 @@ class NatsTransport:
                     await self.core_subscribe(subject, entry["callback"], _is_resubscribe=True)
                 elif entry["type"] == "jetstream":
                     await self.subscribe(subject, entry["callback"], _is_resubscribe=True)
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.error('Failed to resubscribe', e)
 
     async def _flush_offline_buffer(self):
         messages = self._offline_message_buffer[:]
@@ -358,8 +363,8 @@ class NatsTransport:
             if sub:
                 try:
                     await sub.unsubscribe()
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.logger.error('Failed to delete consumer', e)
         self._consumer_map.clear()
 
     async def _fetch_schema(self):
@@ -367,7 +372,8 @@ class NatsTransport:
             subject = SubjectBuilder.schema_get(self._org_id)
             response = await self.request(subject, {"id": self._device_id})
             self._schema = response.get("data", {}).get("schema", None)
-        except Exception:
+        except Exception as e:
+            self.logger.error('Failed to fetch schema', e)
             self._schema = None
 
     def _decode_api_key(self, api_key: str) -> None:

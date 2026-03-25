@@ -30,16 +30,20 @@ class TimeManager:
         if not self._transport.is_connected():
             raise NotConnectedError()
 
-        loop = asyncio.get_running_loop()
-        client = ntplib.NTPClient()
-        response = await loop.run_in_executor(
-            None, lambda: client.request("time.google.com", version=3)
-        )
+        try:
+            loop = asyncio.get_running_loop()
+            client = ntplib.NTPClient()
+            response = await loop.run_in_executor(
+                None, lambda: client.request("time.google.com", version=3)
+            )
 
-        ntp_time_ms = response.tx_time * 1000
-        local_ms = time.time() * 1000
-        self._offset_ms = ntp_time_ms - local_ms
-        self._last_sync_at = time.time() * 1000
+            ntp_time_ms = response.tx_time * 1000
+            local_ms = time.time() * 1000
+            self._offset_ms = ntp_time_ms - local_ms
+            self._last_sync_at = time.time() * 1000
+        except Exception:
+            # NTP sync failed — fall back to local time silently
+            pass
 
     def now(self) -> int:
         return int(time.time() * 1000 + self._offset_ms)
