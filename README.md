@@ -1,11 +1,13 @@
 # RelayX Device SDK for Python
 
-Official Python SDK for connecting IoT devices to the RelayX Network.
+Official Python SDK for connecting IoT devices to the RelayX platform.
+
+> **[View Full Documentation →](https://docs.relay-x.io/device-sdk/overview)**
 
 ## Installation
 
 ```bash
-pip install relayx-device-py
+pip install relayx_device_sdk
 ```
 
 ## Quick Start

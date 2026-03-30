@@ -1,4 +1,5 @@
 from relayx_device_sdk.utils.subject_builder import SubjectBuilder
+import time
 
 
 class EventManager:
@@ -13,4 +14,7 @@ class EventManager:
             event_name,
         )
 
-        return await self._transport.publish(subject, data)
+        return await self._transport.publish(subject, {
+            'value': data,
+            'timestamp': int(time.time() * 1000),
+        })

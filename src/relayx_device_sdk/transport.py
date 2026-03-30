@@ -84,7 +84,6 @@ class NatsTransport:
         self._nats_client = await nats.connect(
             servers=servers,
             no_echo=True,
-            max_reconnect_attempts=1200,
             reconnect_time_wait=1,
             allow_reconnect=True,
             ping_interval=5,
