@@ -57,8 +57,6 @@ device = RelayDevice({
 })
 ```
 
-The `api_key` is a NATS JWT that encodes your `orgId` and `deviceId`. These are extracted automatically on connect.
-
 ## Functionality
 
 ### Connection
@@ -127,7 +125,7 @@ await device.command.off("firmware_update")
 
 ### Config
 
-Get and set device configuration via request/reply.
+Get and set device configuration
 
 ```python
 # Fetch current config
