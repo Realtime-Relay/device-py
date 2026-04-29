@@ -34,11 +34,11 @@ NATS_SERVERS_PRODUCTION = [
     "tls://api.relay-x.io:4223",
 ]
 
-NATS_SERVERS_TEST = [
-    "nats://0.0.0.0:4221",
-    "nats://0.0.0.0:4222",
-    "nats://0.0.0.0:4223",
-]
+# NATS_SERVERS_PRODUCTION = [
+#     "nats://0.0.0.0:4221",
+#     "nats://0.0.0.0:4222",
+#     "nats://0.0.0.0:4223",
+# ]
 
 
 class NatsTransport:

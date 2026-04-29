@@ -28,6 +28,10 @@ async def main():
     # Publish telemetry
     await device.telemetry.publish("temperature", 22.5)
 
+    # Emit logs (batched to backend, mirrored to console)
+    device.log.info("device booted")
+    device.log.warn("disk usage at", 87, "%")
+
     # Listen for RPC calls
     async def on_reboot(req):
         print("Reboot requested:", req.payload)
@@ -144,6 +148,28 @@ Fire-and-forget event publishing of events (fault codes, etc).
 await device.event.send("door_opened", {"door_id": "front", "timestamp": device.time.now()})
 ```
 
+### Logs
+
+Structured device logging with three levels (`info`, `warn`, `error`). Each
+call accepts a variadic argument list — strings, numbers, booleans, plain
+dicts, lists, datetimes, `None`, and exception instances are all accepted;
+callables and other non-serializable values raise `ValidationError`.
+
+```python
+device.log.info("hello world")
+device.log.info("a number reading", 42)
+device.log.warn("careful — disk usage at 87%")
+device.log.error("parse failed", ValueError("bad json"))
+device.log.info("an object", {"port": 8080, "retries": 3})
+```
+
+Locally, each call also mirrors to Python's standard `logging` module
+(at `INFO`/`WARNING`/`ERROR`) so you keep your normal dev experience.
+
+**Batching.** Entries are buffered in memory and flushed to the backend either
+when 15 entries accumulate or after 5 seconds, whichever comes first.
+`disconnect()` flushes any pending buffer.
+
 ### Time
 
 NTP-synchronized clock. Syncs with `time.google.com` on connect and every 3 hours. Auto-resyncs on reconnect if stale.
@@ -181,6 +207,7 @@ from relayx_device_sdk import (
 ## Offline Behavior
 
 - **Telemetry & Events** (`publish`): Messages are buffered in memory while disconnected and flushed automatically on reconnect.
+- **Logs** (`device.log.*`): Entries are buffered and flushed on the same 15-entry / 5-second policy. Any buffer left at `disconnect()` is flushed before the connection drains.
 - **RPC & Commands** (`listen`): Throw `NotConnectedError` if transport is disconnected.
 - **Config** (`get`/`set`): Throw `NotConnectedError` if transport is disconnected.
 

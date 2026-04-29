@@ -44,3 +44,12 @@ class SubjectBuilder:
     def event(org_id: str, env: str, device_id: str, event_name: str) -> str:
         _validate_token(event_name, "eventName")
         return f"{org_id}.{env}.events.{device_id}.{event_name}"
+
+    @staticmethod
+    def log(org_id: str, env: str, device_id: str, type_: str) -> str:
+        if type_ not in ("info", "warn", "error"):
+            raise ValidationError(
+                "log type must be one of 'info', 'warn', 'error' "
+                f"(got '{type_}')"
+            )
+        return f"{org_id}.{env}.logs.{device_id}.{type_}"

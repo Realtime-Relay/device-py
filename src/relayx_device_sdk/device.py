@@ -6,6 +6,7 @@ from relayx_device_sdk.subsystems.command_manager import CommandManager
 from relayx_device_sdk.subsystems.telemetry_manager import TelemetryManager
 from relayx_device_sdk.subsystems.config_manager import ConfigManager
 from relayx_device_sdk.subsystems.event_manager import EventManager
+from relayx_device_sdk.subsystems.log_manager import LogManager
 from relayx_device_sdk.subsystems.connection_manager import Connection
 
 
@@ -29,6 +30,7 @@ class RelayDevice:
         self.telemetry = TelemetryManager(self._transport, self.time)
         self.config = ConfigManager(self._transport)
         self.event = EventManager(self._transport)
+        self.log = LogManager(self._transport, self.time)
         self.connection = Connection(self._transport)
 
     @staticmethod
@@ -39,6 +41,7 @@ class RelayDevice:
         return await self._transport.connect()
 
     async def disconnect(self) -> bool:
+        await self.log.shutdown()
         return await self._transport.disconnect()
 
     @staticmethod
