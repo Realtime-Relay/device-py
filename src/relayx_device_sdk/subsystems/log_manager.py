@@ -63,6 +63,7 @@ class LogManager:
         self._buffer = []
         self._timer_handle = None
         self._in_flight = set()
+        self._last_timestamp = 0
 
     # ── Public API: sync, returns None ─────────────────────────────
 
@@ -86,10 +87,17 @@ class LogManager:
         stream = sys.stdout if type_ == "info" else sys.stderr
         print(*args, file=stream)
 
+        # Monotonic ms timestamp — Influx upserts on (measurement, tags, _field,
+        # _time), so back-to-back logs in the same ms would overwrite each other.
+        # Force strictly increasing timestamps within the device.
+        now = self._time.now()
+        ts = now if now > self._last_timestamp else self._last_timestamp + 1
+        self._last_timestamp = ts
+
         self._buffer.append(
             {
                 "type": type_,
-                "timestamp": self._time.now(),
+                "timestamp": ts,
                 "data": _format_args(args),
             }
         )
